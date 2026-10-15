@@ -178,9 +178,9 @@ Database schemas are managed using version-controlled Prisma migrations located 
 The database seed script (`prisma/seed.ts`) is completely idempotent and seeds:
 
 - **3 Users** (one per required role):
-  - **Admin**: `admin@famt.com` / `Password123!`
-  - **Technician**: `tech@famt.com` / `Password123!`
-  - **Viewer**: `viewer@famt.com` / `Password123!`
+  - **Admin**: `admin@famt.dev` / `Password123!`
+  - **Technician**: `tech@famt.dev` / `Password123!`
+  - **Viewer**: `viewer@famt.dev` / `Password123!`
 - **2 Sites**:
   - `Plant Alpha` (North Industrial Zone)
   - `Facility Bravo` (West Industrial Corridor)
@@ -359,7 +359,7 @@ The status transition state machine follows industrial field operations protocol
 | `PUT`    | `/api/assets/:id`           | Admin            | Update asset fields                                                         |
 | `DELETE` | `/api/assets/:id`           | Admin            | Delete asset (blocked if asset has tickets)                                 |
 | `GET`    | `/api/tickets`              | Authenticated    | List tickets with filters (`status`, `priority`, `assigneeId`, pagination)  |
-| `GET`    | `/api/tickets/:id`          | Authenticated    | Retrieve ticket with asset, creator, and assignee relations                 |
+| `GET`    | `/api/tickets/:id`          | Admin / Assignee | Retrieve ticket with relations (Admin or assigned Technician only)          |
 | `POST`   | `/api/tickets`              | Authenticated    | Create maintenance ticket                                                   |
 | `PUT`    | `/api/tickets/:id`          | Admin / Assignee | Update ticket details                                                       |
 | `PATCH`  | `/api/tickets/:id/status`   | Admin / Tech     | Update status (`Open`->`In progress`->`Resolved`; Admin only for reopen)    |

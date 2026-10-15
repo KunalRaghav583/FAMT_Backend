@@ -5,8 +5,10 @@ import { TicketPriority, TicketStatus } from "@prisma/client";
 
 describe("Stage 5 - Tickets API Integration Tests", () => {
   let adminToken: string;
+  let adminUserId: string;
   let techToken: string;
   let viewerToken: string;
+  let unassignedTechToken: string;
   let techUserId: string;
   let viewerUserId: string;
   let testAssetId: string;
@@ -20,6 +22,7 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
       .post("/api/auth/login")
       .send({ email: "admin@famt.dev", password: "Password123!" });
     adminToken = adminLogin.body.token;
+    adminUserId = adminLogin.body.user.id;
 
     const techLogin = await request(app)
       .post("/api/auth/login")
@@ -32,6 +35,22 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
       .send({ email: "viewer@famt.dev", password: "Password123!" });
     viewerToken = viewerLogin.body.token;
     viewerUserId = viewerLogin.body.user.id;
+
+    // Register & login an unassigned technician for access control tests
+    await request(app)
+      .post("/api/auth/register")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "Unassigned Technician",
+        email: "unassignedtech@famt.dev",
+        password: "Password123!",
+        role: "Technician",
+      });
+
+    const unassignedLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "unassignedtech@famt.dev", password: "Password123!" });
+    unassignedTechToken = unassignedLogin.body.token;
 
     // Grab an asset
     const asset = await prisma.asset.findFirst();
@@ -57,11 +76,14 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
   });
 
   afterAll(async () => {
-    // Clean up created test tickets
+    // Clean up created test tickets and unassigned technician
     if (createdTicketId) {
       await prisma.comment.deleteMany({ where: { ticketId: createdTicketId } });
       await prisma.ticket.deleteMany({ where: { id: createdTicketId } });
     }
+    await prisma.user.deleteMany({
+      where: { email: "unassignedtech@famt.dev" },
+    });
     await prisma.$disconnect();
   });
 
@@ -153,10 +175,10 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
   });
 
   describe("GET /api/tickets/:id", () => {
-    it("should retrieve a single ticket with full relations for any authenticated user", async () => {
+    it("should allow an Admin to retrieve any single ticket with full relations", async () => {
       const res = await request(app)
         .get(`/api/tickets/${seededTicketId}`)
-        .set("Authorization", `Bearer ${viewerToken}`);
+        .set("Authorization", `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("ticket");
@@ -167,10 +189,42 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
       expect(res.body.ticket).toHaveProperty("comments");
     });
 
+    it("should allow the assigned Technician to retrieve their ticket", async () => {
+      const res = await request(app)
+        .get(`/api/tickets/${seededTicketId}`)
+        .set("Authorization", `Bearer ${techToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("ticket");
+      expect(res.body.ticket.id).toBe(seededTicketId);
+    });
+
+    it("should forbid unassigned Technician from accessing ticket details with 403", async () => {
+      const res = await request(app)
+        .get(`/api/tickets/${seededTicketId}`)
+        .set("Authorization", `Bearer ${unassignedTechToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(
+        /Forbidden: Only an Admin or the assigned technician can access this ticket/i,
+      );
+    });
+
+    it("should forbid Viewer from accessing ticket details with 403", async () => {
+      const res = await request(app)
+        .get(`/api/tickets/${seededTicketId}`)
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(
+        /Forbidden: Only an Admin or the assigned technician can access this ticket/i,
+      );
+    });
+
     it("should reject malformed ticket ID with 400", async () => {
       const res = await request(app)
         .get("/api/tickets/invalid-ticket-uuid")
-        .set("Authorization", `Bearer ${viewerToken}`);
+        .set("Authorization", `Bearer ${adminToken}`);
 
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/must be a valid UUID/i);
@@ -179,7 +233,7 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
     it("should return 404 for valid but nonexistent ticket UUID", async () => {
       const res = await request(app)
         .get("/api/tickets/00000000-0000-0000-0000-000000000000")
-        .set("Authorization", `Bearer ${viewerToken}`);
+        .set("Authorization", `Bearer ${adminToken}`);
 
       expect(res.status).toBe(404);
       expect(res.body).toEqual({ error: "Ticket not found" });
@@ -228,6 +282,25 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty("error");
       expect(res.body.error).toMatch(/Cannot assign.*to a Viewer/i);
+    });
+
+    it("should reject ticket creation assigned to an Admin user with 400", async () => {
+      const dueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const res = await request(app)
+        .post("/api/tickets")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          title: "Invalid assignment to admin",
+          description: "Attempting to assign ticket to an Admin user.",
+          priority: "Low",
+          dueDate,
+          assetId: testAssetId,
+          assigneeId: adminUserId,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/Cannot assign.*to an Admin user/i);
     });
 
     it("should reject ticket creation with nonexistent asset ID with 400", async () => {
@@ -393,6 +466,26 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
 
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty("error");
+    });
+
+    it("should reject illegal skipping status transition (Open -> Closed) with 400", async () => {
+      const res = await request(app)
+        .patch(`/api/tickets/${seededTicketId}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "Closed" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid status transition/i);
+    });
+
+    it("should reject illegal skipping status transition by Technician (Open -> Resolved) with 400", async () => {
+      const res = await request(app)
+        .patch(`/api/tickets/${seededTicketId}/status`)
+        .set("Authorization", `Bearer ${techToken}`)
+        .send({ status: "Resolved" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid status transition/i);
     });
   });
 });

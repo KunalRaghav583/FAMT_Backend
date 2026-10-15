@@ -4,6 +4,64 @@ import { prisma } from "../db/prisma";
 import { AuthenticatedRequest } from "../types/auth.types";
 import { AppError } from "../errors/app.error";
 
+// Allowed status workflow transitions: Open -> In progress -> Resolved -> Closed
+const ALLOWED_FORWARD_STATUS: Record<TicketStatus, TicketStatus> = {
+  [TicketStatus.Open]: TicketStatus.In_progress,
+  [TicketStatus.In_progress]: TicketStatus.Resolved,
+  [TicketStatus.Resolved]: TicketStatus.Closed,
+  [TicketStatus.Closed]: TicketStatus.Open, // Reopening: handled with Admin check
+};
+
+function validateStatusTransition(
+  currentStatus: TicketStatus,
+  targetStatus: TicketStatus,
+  isAdmin: boolean,
+): void {
+  if (currentStatus === targetStatus) {
+    return; // No-op, allowed
+  }
+
+  // Reopening check
+  if (currentStatus === TicketStatus.Closed) {
+    if (targetStatus === TicketStatus.Open) {
+      if (!isAdmin) {
+        throw new AppError("Forbidden: Only an Admin can reopen a closed ticket", 403);
+      }
+      return;
+    }
+    throw new AppError(
+      `Invalid status transition from '${currentStatus}' to '${targetStatus}'. A closed ticket can only be reopened to 'Open' by an Admin.`,
+      400,
+    );
+  }
+
+  // If closed is targeted from any status other than Resolved:
+  if (targetStatus === TicketStatus.Closed && currentStatus !== TicketStatus.Resolved) {
+    throw new AppError(
+      `Invalid status transition from '${currentStatus}' to 'Closed'. Tickets must be Resolved before they can be Closed.`,
+      400,
+    );
+  }
+
+  // Admin supervisory override: Admin can move Open -> Resolved directly
+  if (
+    isAdmin &&
+    currentStatus === TicketStatus.Open &&
+    targetStatus === TicketStatus.Resolved
+  ) {
+    return;
+  }
+
+  // General sequential flow check: Open -> In progress -> Resolved -> Closed
+  const expectedNext = ALLOWED_FORWARD_STATUS[currentStatus];
+  if (targetStatus !== expectedNext) {
+    throw new AppError(
+      `Invalid status transition from '${currentStatus}' to '${targetStatus}'. Workflow must follow: Open -> In progress -> Resolved -> Closed.`,
+      400,
+    );
+  }
+}
+
 export async function listTickets(
   req: AuthenticatedRequest,
   res: Response,
@@ -165,6 +223,17 @@ export async function getTicketById(
       throw new AppError("Ticket not found", 404);
     }
 
+    // Access requirement: Admin or assignee only (Page 4 of assignment PDF)
+    const isAdmin = req.user?.role === Role.Admin;
+    const isAssignee = ticket.assigneeId === req.user?.id;
+
+    if (!isAdmin && !isAssignee) {
+      throw new AppError(
+        "Forbidden: Only an Admin or the assigned technician can access this ticket",
+        403,
+      );
+    }
+
     res.status(200).json({ ticket });
   } catch (error) {
     next(error);
@@ -192,7 +261,7 @@ export async function createTicket(
       throw new AppError("Referenced asset does not exist", 400);
     }
 
-    // 2. If assignee is specified, verify user exists
+    // 2. If assignee is specified, verify user exists and is a Technician
     if (assigneeId) {
       const assigneeUser = await prisma.user.findUnique({
         where: { id: assigneeId },
@@ -200,8 +269,14 @@ export async function createTicket(
       if (!assigneeUser) {
         throw new AppError("Referenced assignee user does not exist", 400);
       }
-      if (assigneeUser.role === Role.Viewer) {
-        throw new AppError("Cannot assign a maintenance ticket to a Viewer user", 400);
+      if (assigneeUser.role !== Role.Technician) {
+        if (assigneeUser.role === Role.Viewer) {
+          throw new AppError("Cannot assign a maintenance ticket to a Viewer user", 400);
+        }
+        throw new AppError(
+          "Cannot assign a maintenance ticket to an Admin user. Tickets can only be assigned to a Technician.",
+          400,
+        );
       }
     }
 
@@ -285,14 +360,9 @@ export async function updateTicket(
       );
     }
 
-    // Reopening rule: If closed ticket is being reopened, only Admin can reopen
-    if (
-      existingTicket.status === TicketStatus.Closed &&
-      status &&
-      status !== TicketStatus.Closed &&
-      !isAdmin
-    ) {
-      throw new AppError("Forbidden: Only an Admin can reopen a closed ticket", 403);
+    // Validate status workflow transition if status is being updated
+    if (status !== undefined) {
+      validateStatusTransition(existingTicket.status, status, isAdmin);
     }
 
     // If updating asset, check existence
@@ -305,7 +375,7 @@ export async function updateTicket(
       }
     }
 
-    // If updating assignee, check existence and role
+    // If updating assignee, check existence and role (must be Technician)
     if (assigneeId !== undefined && assigneeId !== existingTicket.assigneeId) {
       if (assigneeId !== null) {
         const assigneeUser = await prisma.user.findUnique({
@@ -314,8 +384,17 @@ export async function updateTicket(
         if (!assigneeUser) {
           throw new AppError("Referenced assignee user does not exist", 400);
         }
-        if (assigneeUser.role === Role.Viewer) {
-          throw new AppError("Cannot assign a maintenance ticket to a Viewer user", 400);
+        if (assigneeUser.role !== Role.Technician) {
+          if (assigneeUser.role === Role.Viewer) {
+            throw new AppError(
+              "Cannot assign a maintenance ticket to a Viewer user",
+              400,
+            );
+          }
+          throw new AppError(
+            "Cannot assign a maintenance ticket to an Admin user. Tickets can only be assigned to a Technician.",
+            400,
+          );
         }
       }
     }
@@ -398,14 +477,8 @@ export async function updateTicketStatus(
       );
     }
 
-    // Reopening rule: Admin can reopen a closed ticket
-    if (
-      existingTicket.status === TicketStatus.Closed &&
-      status !== TicketStatus.Closed &&
-      !isAdmin
-    ) {
-      throw new AppError("Forbidden: Only an Admin can reopen a closed ticket", 403);
-    }
+    // Validate status workflow transition
+    validateStatusTransition(existingTicket.status, status, isAdmin);
 
     const updatedTicket = await prisma.ticket.update({
       where: { id },

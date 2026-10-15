@@ -81,6 +81,7 @@ The system enforces three user roles:
 | `PUT /api/assets/:id`                           |  ✅   |     ❌ (403)     | ❌ (403) |    ❌ (401)     |
 | `DELETE /api/assets/:id`                        |  ✅   |     ❌ (403)     | ❌ (403) |    ❌ (401)     |
 | `GET /api/tickets`                              |  ✅   |        ✅        |    ✅    |    ❌ (401)     |
+| `GET /api/tickets/:id`                          |  ✅   | ✅ (if assigned) | ❌ (403) |    ❌ (401)     |
 | `POST /api/tickets`                             |  ✅   |        ✅        |    ✅    |    ❌ (401)     |
 | `PUT /api/tickets/:id`                          |  ✅   | ✅ (if assigned) | ❌ (403) |    ❌ (401)     |
 | `PATCH /api/tickets/:id/status` (Workflow)      |  ✅   |        ✅        | ❌ (403) |    ❌ (401)     |
@@ -145,7 +146,7 @@ Authenticates a user and issues a signed JSON Web Token.
 
 ```json
 {
-  "email": "admin@famt.com",
+  "email": "admin@famt.dev",
   "password": "Password123!"
 }
 ```
@@ -160,7 +161,7 @@ Authenticates a user and issues a signed JSON Web Token.
   "user": {
     "id": "d0e1a2b3-c4d5-4e6f-a7b8-c9d0e1f2a3b4",
     "name": "System Administrator",
-    "email": "admin@famt.com",
+    "email": "admin@famt.dev",
     "role": "Admin"
   }
 }
@@ -184,7 +185,7 @@ Retrieves the profile of the currently authenticated user.
   "user": {
     "id": "d0e1a2b3-c4d5-4e6f-a7b8-c9d0e1f2a3b4",
     "name": "System Administrator",
-    "email": "admin@famt.com",
+    "email": "admin@famt.dev",
     "role": "Admin",
     "createdAt": "2026-10-15T11:44:50.000Z"
   }
@@ -462,12 +463,12 @@ Lists tickets with filtering and pagination.
       "createdBy": {
         "id": "d0e1a2b3-c4d5-4e6f-a7b8-c9d0e1f2a3b4",
         "name": "System Administrator",
-        "email": "admin@famt.com"
+        "email": "admin@famt.dev"
       },
       "assignee": {
         "id": "f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c",
         "name": "Field Technician One",
-        "email": "tech@famt.com"
+        "email": "tech@famt.dev"
       }
     }
   ],
@@ -486,10 +487,11 @@ Lists tickets with filtering and pagination.
 
 Retrieves a single ticket with full asset, site, creator, and assignee relations.
 
-- **Authentication**: Required (Any role).
+- **Authentication**: Required (`requireAuth`). Access is restricted to **Admin or the assigned Technician** per the assignment specification.
 - **Responses**:
   - `200 OK`: Ticket object with relations.
   - `400 Bad Request`: Malformed UUID.
+  - `403 Forbidden`: User is neither Admin nor the assigned Technician.
   - `404 Not Found`: Ticket not found.
 
 ---
@@ -500,8 +502,8 @@ Creates a new maintenance ticket.
 
 - **Authentication**: Required (Any authenticated user: Admin, Technician, or Viewer).
 - **Rules**:
-  - `createdById` is automatically set to `req.user.id`.
-  - If `assigneeId` is provided, the assigned user must have role `Technician` or `Admin`. Assigning to a `Viewer` is rejected with `400 Bad Request`.
+  - `createdBy` is automatically set to `req.user.id`.
+  - If `assigneeId` is provided, the assigned user must have role `Technician`. Assigning to a `Viewer` or `Admin` is rejected with `400 Bad Request`.
   - `assetId` must reference a valid asset.
 - **Request Body**:
 

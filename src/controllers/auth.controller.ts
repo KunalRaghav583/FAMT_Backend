@@ -29,23 +29,13 @@ export async function register(
     if (userCount === 0) {
       // First system bootstrap user becomes Admin
       assignedRole = Role.Admin;
+    } else if (req.user && req.user.role === Role.Admin) {
+      // If the caller IS a logged-in Admin (valid token): Admin can set the role
+      assignedRole = role && Object.values(Role).includes(role) ? role : Role.Viewer;
     } else {
-      // If someone attempts to register as Admin
-      if (role === Role.Admin) {
-        // Only an existing authenticated Admin can register another Admin
-        const callerRole = req.user?.role;
-        if (callerRole !== Role.Admin) {
-          throw new AppError("Public registration cannot grant Admin role", 403);
-        }
-        assignedRole = Role.Admin;
-      } else if (role && Object.values(Role).includes(role)) {
-        // Authenticated Admin can assign any role; public registration defaults to Viewer
-        if (req.user?.role === Role.Admin) {
-          assignedRole = role;
-        } else {
-          assignedRole = role === Role.Technician ? Role.Technician : Role.Viewer;
-        }
-      }
+      // If users exist and caller is NOT a logged-in Admin:
+      // register is allowed, but the role is ALWAYS Viewer. Ignore any role sent in the body.
+      assignedRole = Role.Viewer;
     }
 
     const passwordHash = await hashPassword(password);

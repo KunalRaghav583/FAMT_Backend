@@ -33,7 +33,14 @@ describe("Stage 3 - Authentication & Authorization Integration Tests", () => {
     await prisma.user.deleteMany({
       where: {
         email: {
-          in: ["newuser@famt.dev", "admincreated@famt.dev", "publicviewer@famt.dev"],
+          in: [
+            "newuser@famt.dev",
+            "admincreated@famt.dev",
+            "publicviewer@famt.dev",
+            "spoofer@famt.dev",
+            "admintech@famt.dev",
+            "bootstrapadmin@famt.dev",
+          ],
         },
       },
     });
@@ -66,23 +73,55 @@ describe("Stage 3 - Authentication & Authorization Integration Tests", () => {
       expect(dbUser?.passwordHash.startsWith("$2b$")).toBe(true);
     });
 
-    it("should forbid public unauthenticated users from granting themselves the Admin role", async () => {
+    it("should ignore role in public request body and always create user as Viewer", async () => {
       const res = await request(app).post("/api/auth/register").send({
-        name: "Malicious Actor",
-        email: "attacker@famt.dev",
+        name: "Role Spoofer",
+        email: "spoofer@famt.dev",
         password: "Password123!",
         role: "Admin",
       });
 
-      expect(res.status).toBe(403);
-      expect(res.body).toHaveProperty("error");
-      expect(res.body.error).toMatch(/Public registration cannot grant Admin role/i);
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty("user");
+      expect(res.body.user.role).toBe(Role.Viewer);
 
-      // Verify record was not created
-      const attacker = await prisma.user.findUnique({
-        where: { email: "attacker@famt.dev" },
+      // Verify in DB that role was assigned as Viewer
+      const dbUser = await prisma.user.findUnique({
+        where: { email: "spoofer@famt.dev" },
       });
-      expect(attacker).toBeNull();
+      expect(dbUser?.role).toBe(Role.Viewer);
+    });
+
+    it("should allow an authenticated Admin with token to create a Technician", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Admin Created Tech",
+          email: "admintech@famt.dev",
+          password: "SecurePassword123!",
+          role: "Technician",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.user.role).toBe(Role.Technician);
+      expect(res.body.user.passwordHash).toBeUndefined();
+    });
+
+    it("should bootstrap the very first user as Admin if zero users exist in the database", async () => {
+      // Simulate 0 users in DB to verify first-user bootstrap
+      const countSpy = jest.spyOn(prisma.user, "count").mockResolvedValueOnce(0);
+
+      const res = await request(app).post("/api/auth/register").send({
+        name: "First Bootstrap Admin",
+        email: "bootstrapadmin@famt.dev",
+        password: "SecurePassword123!",
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.user.role).toBe(Role.Admin);
+
+      countSpy.mockRestore();
     });
 
     it("should allow an authenticated Admin to register a user with Admin role", async () => {
@@ -217,6 +256,27 @@ describe("Stage 3 - Authentication & Authorization Integration Tests", () => {
       expect(res.status).toBe(401);
       expect(res.body).toHaveProperty("error");
       expect(res.body.error).toMatch(/token expired/i);
+    });
+
+    it("should reject token referring to a user who does not exist in the database with 401", async () => {
+      const nonExistentUserToken = jwt.sign(
+        {
+          id: "00000000-0000-0000-0000-000000000000",
+          email: "ghost@famt.dev",
+          role: Role.Viewer,
+          name: "Ghost User",
+        },
+        env.JWT_SECRET,
+        { expiresIn: "1h" },
+      );
+
+      const res = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${nonExistentUserToken}`);
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/User account no longer exists/i);
     });
   });
 

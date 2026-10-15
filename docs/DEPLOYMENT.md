@@ -134,7 +134,7 @@ curl -X GET https://<your-service-url>/api/health
 ```bash
 curl -X POST https://<your-service-url>/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@famt.com","password":"YourAdminPassword!"}'
+  -d '{"email":"admin@famt.dev","password":"YourAdminPassword!"}'
 ```
 
 **Expected Response**: HTTP 200 with JWT token.
