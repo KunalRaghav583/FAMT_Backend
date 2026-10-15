@@ -1,0 +1,1568 @@
+{
+  "info": {
+    "_postman_id": "c1f7a4e8-8b2d-4d92-938b-87d25619b0aa",
+    "name": "Field Asset Maintenance Tracker (FAMT) API",
+    "description": "# Field Asset Maintenance Tracker API Collection\n\nComprehensive Postman collection for the Field Asset Maintenance Tracker (FAMT) Backend API.\n\n### Prerequisites\n1. Ensure the backend server is running (`npm run dev` at `http://localhost:5000`).\n2. Import the `FAMT_Local.postman_environment.json` environment into Postman.\n3. Ensure database is migrated and seeded (`npm run prisma:migrate && npm run prisma:seed`).\n\n### Recommended Execution Sequence\nTo run requests smoothly with automatic variable resolution:\n1. **Authentication**: Run `Login Admin`, `Login Technician`, and `Login Viewer`. This populates `adminToken`, `techToken`, `viewerToken`, and sets `token` to the admin token.\n2. **Sites**: Run `List Sites` (captures `siteId`), `Get Site by ID`, `Create Site` (captures `createdSiteId`), `Update Site`, `Delete Protected Site` (asserts 400), and `Delete Created Site`.\n3. **Assets**: Run `List Assets` (captures `assetId`), `Get Asset by ID`, `Create Asset` (captures `createdAssetId`), `Update Asset`, and filter/pagination requests.\n4. **Tickets**: Run `List Tickets` (captures `ticketId`), `Get Ticket by ID`, `Create Ticket` (captures `createdTicketId`), `Update Ticket Status` lifecycle transitions, and test Technician reopening restriction (asserts 403).\n5. **Comments**: Run `List Comments` on `{{ticketId}}` and `Add Comment to Ticket`.\n6. **Dashboard**: Run `Get Dashboard Summary`.\n7. **System**: Run `Health Check` and `Test Admin Access`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01. Authentication",
+      "description": "Authentication endpoints: user registration, role promotion, login, profile retrieval, and logout.",
+      "item": [
+        {
+          "name": "Register Viewer (Public)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"User registered with Viewer role by default\", function () {",
+                  "    pm.expect(res.user).to.have.property(\"role\", \"Viewer\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Public\",\n  \"email\": \"jane.public{{$timestamp}}@example.com\",\n  \"password\": \"SecurePass123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Public registration creates a user with default 'Viewer' role. No token required."
+          },
+          "response": []
+        },
+        {
+          "name": "Register Technician (Admin Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"User registered with Technician role\", function () {",
+                  "    pm.expect(res.user).to.have.property(\"role\", \"Technician\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Field Tech {{$timestamp}}\",\n  \"email\": \"tech{{$timestamp}}@example.com\",\n  \"password\": \"SecurePass123!\",\n  \"role\": \"Technician\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Admin users can register accounts with elevated roles ('Technician' or 'Admin'). Requires Admin Bearer token."
+          },
+          "response": []
+        },
+        {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Returns valid JWT token and Admin role\", function () {",
+                  "    pm.expect(res).to.have.property(\"token\");",
+                  "    pm.expect(res.user).to.have.property(\"role\", \"Admin\");",
+                  "    pm.environment.set(\"token\", res.token);",
+                  "    pm.environment.set(\"adminToken\", res.token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{defaultPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Authenticates the seeded Admin user and saves token to {{adminToken}} and active {{token}}."
+          },
+          "response": []
+        },
+        {
+          "name": "Login Technician",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Returns Technician role and token\", function () {",
+                  "    pm.expect(res).to.have.property(\"token\");",
+                  "    pm.expect(res.user).to.have.property(\"role\", \"Technician\");",
+                  "    pm.environment.set(\"techToken\", res.token);",
+                  "    pm.environment.set(\"assigneeId\", res.user.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{techEmail}}\",\n  \"password\": \"{{defaultPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Authenticates the seeded Technician user and saves token to {{techToken}} and user ID to {{assigneeId}}."
+          },
+          "response": []
+        },
+        {
+          "name": "Login Viewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Returns Viewer role and token\", function () {",
+                  "    pm.expect(res).to.have.property(\"token\");",
+                  "    pm.expect(res.user).to.have.property(\"role\", \"Viewer\");",
+                  "    pm.environment.set(\"viewerToken\", res.token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{viewerEmail}}\",\n  \"password\": \"{{defaultPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Authenticates the seeded Viewer user and saves token to {{viewerToken}}."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current User Profile (/me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"User profile excludes password hash\", function () {",
+                  "    pm.expect(res.user).to.have.property(\"id\");",
+                  "    pm.expect(res.user).to.have.property(\"email\");",
+                  "    pm.expect(res.user).to.not.have.property(\"password\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            },
+            "description": "Returns the profile of the currently authenticated user based on the Bearer token."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "logout"]
+            },
+            "description": "Stateless logout endpoint informing the client to discard their JWT token."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02. Sites",
+      "description": "Sites management. Viewing sites is permitted for all authenticated users; creating, updating, and deleting sites is restricted to Admins.",
+      "item": [
+        {
+          "name": "List Sites",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Sites array returned\", function () {",
+                  "    pm.expect(res).to.have.property(\"sites\");",
+                  "    pm.expect(res.sites).to.be.an(\"array\");",
+                  "    if (res.sites.length > 0) {",
+                  "        pm.environment.set(\"siteId\", res.sites[0].id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sites",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sites"]
+            },
+            "description": "Lists all operational sites along with asset count aggregations. Automatically captures {{siteId}} from first result."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Site by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Site details retrieved\", function () {",
+                  "    pm.expect(res.site).to.have.property(\"id\", pm.environment.get(\"siteId\"));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sites/{{siteId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sites", "{{siteId}}"]
+            },
+            "description": "Retrieves site details by UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Site (Admin Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Site created successfully\", function () {",
+                  "    pm.expect(res.site).to.have.property(\"id\");",
+                  "    pm.environment.set(\"createdSiteId\", res.site.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Logistics Hub {{$timestamp}}\",\n  \"location\": \"Sector 42, Industrial Zone\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sites",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sites"]
+            },
+            "description": "Creates a new site. Requires Admin role. Saves ID to {{createdSiteId}}."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Site (Admin Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Site updated successfully\", function () {",
+                  "    pm.expect(res.site.name).to.include(\"Updated\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Logistics Hub Updated\",\n  \"location\": \"Sector 42, North Wing\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sites/{{createdSiteId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sites", "{{createdSiteId}}"]
+            },
+            "description": "Updates a site's name or location. Empty bodies or unknown fields are rejected with 400."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Created Site (Admin Only - Empty)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sites/{{createdSiteId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sites", "{{createdSiteId}}"]
+            },
+            "description": "Deletes an empty site with no associated assets."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Site with Assets (Should Fail 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Error explains foreign key restriction\", function () {",
+                  "    pm.expect(res.error).to.include(\"associated assets\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sites/{{siteId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sites", "{{siteId}}"]
+            },
+            "description": "Verifies referential integrity: attempting to delete a site containing assets is blocked with 400."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03. Assets",
+      "description": "Assets management: listing, filtering by status and siteId, search, deterministic pagination, and Admin CRUD.",
+      "item": [
+        {
+          "name": "List Assets (Default Pagination)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Assets and pagination returned\", function () {",
+                  "    pm.expect(res).to.have.property(\"assets\");",
+                  "    pm.expect(res).to.have.property(\"pagination\");",
+                  "    if (res.assets.length > 0) {",
+                  "        pm.environment.set(\"assetId\", res.assets[0].id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets"]
+            },
+            "description": "Lists assets with default pagination (page=1, limit=10). Automatically sets {{assetId}}."
+          },
+          "response": []
+        },
+        {
+          "name": "List Assets (Search & Status Filter)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets?search=pump&status=Active",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "pump"
+                },
+                {
+                  "key": "status",
+                  "value": "Active"
+                }
+              ]
+            },
+            "description": "Searches assets by text (matches name or serial number) and filters by status."
+          },
+          "response": []
+        },
+        {
+          "name": "List Assets (Filter by Site ID)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets?siteId={{siteId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets"],
+              "query": [
+                {
+                  "key": "siteId",
+                  "value": "{{siteId}}"
+                }
+              ]
+            },
+            "description": "Filters assets located at a specific site."
+          },
+          "response": []
+        },
+        {
+          "name": "List Assets (Pagination Page 2 Limit 5)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Pagination reflects page 2 and limit 5\", function () {",
+                  "    pm.expect(res.pagination.page).to.equal(2);",
+                  "    pm.expect(res.pagination.limit).to.equal(5);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets?page=2&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "2"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Tests deterministic pagination with custom page and limit."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Asset by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Asset details include site relation\", function () {",
+                  "    pm.expect(res.asset).to.have.property(\"site\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/{{assetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", "{{assetId}}"]
+            },
+            "description": "Retrieves asset details including related site data."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Asset (Admin Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Asset created successfully\", function () {",
+                  "    pm.expect(res.asset).to.have.property(\"id\");",
+                  "    pm.environment.set(\"createdAssetId\", res.asset.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Chiller Unit {{$timestamp}}\",\n  \"type\": \"HVAC\",\n  \"serialNo\": \"CHILL-{{$timestamp}}\",\n  \"status\": \"Active\",\n  \"siteId\": \"{{siteId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/assets",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets"]
+            },
+            "description": "Creates a new asset linked to an existing site. Requires Admin role. Saves ID to {{createdAssetId}}."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Asset (Admin Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Status updated to Under maintenance\", function () {",
+                  "    pm.expect(res.asset.status).to.equal(\"Under maintenance\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Under maintenance\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/{{createdAssetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", "{{createdAssetId}}"]
+            },
+            "description": "Updates asset properties. Accepts 'Active', 'Under maintenance', or 'Retired'."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Created Asset (Admin Only - Without Tickets)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/{{createdAssetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", "{{createdAssetId}}"]
+            },
+            "description": "Deletes an asset that has no maintenance tickets."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Asset with Tickets (Should Fail 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Error explains ticket dependency\", function () {",
+                  "    pm.expect(res.error).to.include(\"associated maintenance tickets\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/{{assetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", "{{assetId}}"]
+            },
+            "description": "Verifies referential integrity: attempting to delete an asset with tickets is blocked with 400."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04. Tickets",
+      "description": "Tickets management and maintenance workflow: list with filters, create ticket, update fields, state transitions, and Admin-only reopening rule.",
+      "item": [
+        {
+          "name": "List Tickets (Default Pagination)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Tickets array and pagination returned\", function () {",
+                  "    pm.expect(res).to.have.property(\"tickets\");",
+                  "    pm.expect(res).to.have.property(\"pagination\");",
+                  "    if (res.tickets.length > 0) {",
+                  "        pm.environment.set(\"ticketId\", res.tickets[0].id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets"]
+            },
+            "description": "Lists tickets with default pagination. Captures {{ticketId}} from first result."
+          },
+          "response": []
+        },
+        {
+          "name": "List Tickets (Filter by Status & Priority)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets?status=Open&priority=High",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "Open"
+                },
+                {
+                  "key": "priority",
+                  "value": "High"
+                }
+              ]
+            },
+            "description": "Filters tickets matching specific status and priority."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Ticket by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Ticket includes asset, creator, and assignee\", function () {",
+                  "    pm.expect(res.ticket).to.have.property(\"asset\");",
+                  "    pm.expect(res.ticket).to.have.property(\"createdBy\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{ticketId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{ticketId}}"]
+            },
+            "description": "Retrieves complete ticket record with relation graphs."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Ticket (Any Authenticated User)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Ticket created successfully\", function () {",
+                  "    pm.expect(res.ticket).to.have.property(\"id\");",
+                  "    pm.environment.set(\"createdTicketId\", res.ticket.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Unusual Vibration in Pump {{$timestamp}}\",\n  \"description\": \"Motor bearing generating excessive heat and high amplitude vibrations.\",\n  \"priority\": \"High\",\n  \"dueDate\": \"2026-12-31T18:00:00.000Z\",\n  \"assetId\": \"{{assetId}}\",\n  \"assigneeId\": \"{{assigneeId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets"]
+            },
+            "description": "Creates a ticket. Any authenticated user (Admin, Technician, Viewer) can create tickets. Saves ID to {{createdTicketId}}."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Ticket Details (Assigned Tech or Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priority\": \"Critical\",\n  \"description\": \"Updated: Vibration worsened, emergency lubrication required immediately.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{createdTicketId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{createdTicketId}}"]
+            },
+            "description": "Updates ticket fields (priority, description, etc.). Permitted for ticket assignee or Admins."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Status: Open -> In progress (Tech/Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Status moved to In progress\", function () {",
+                  "    pm.expect(res.ticket.status).to.equal(\"In progress\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{techToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"In progress\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{createdTicketId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{createdTicketId}}", "status"]
+            },
+            "description": "Technician transitions ticket status from Open to In progress."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Status: In progress -> Resolved (Tech/Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Status moved to Resolved\", function () {",
+                  "    pm.expect(res.ticket.status).to.equal(\"Resolved\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{techToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Resolved\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{createdTicketId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{createdTicketId}}", "status"]
+            },
+            "description": "Technician transitions ticket status from In progress to Resolved."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Status: Resolved -> Closed (Admin Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Status moved to Closed\", function () {",
+                  "    pm.expect(res.ticket.status).to.equal(\"Closed\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Closed\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{createdTicketId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{createdTicketId}}", "status"]
+            },
+            "description": "Admin verifies resolution and formally closes the ticket."
+          },
+          "response": []
+        },
+        {
+          "name": "Technician Reopen Closed Ticket (Should Fail 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Only Admin can reopen closed ticket\", function () {",
+                  "    pm.expect(res.error).to.include(\"reopen\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{techToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Open\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{createdTicketId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{createdTicketId}}", "status"]
+            },
+            "description": "Verifies that Technicians cannot reopen Closed tickets (assignment requirement)."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Reopen Closed Ticket (Admin Allowed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Ticket reopened to Open status\", function () {",
+                  "    pm.expect(res.ticket.status).to.equal(\"Open\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Open\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{createdTicketId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{createdTicketId}}", "status"]
+            },
+            "description": "Verifies that Admins are permitted to reopen Closed tickets back to Open."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05. Comments",
+      "description": "Ticket comments endpoints for collaborative communication.",
+      "item": [
+        {
+          "name": "List Comments for Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Comments array returned\", function () {",
+                  "    pm.expect(res).to.have.property(\"comments\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{ticketId}}/comments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{ticketId}}", "comments"]
+            },
+            "description": "Retrieves the chronological list of comments for a ticket along with author names and roles."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Comment to Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Comment created with author details\", function () {",
+                  "    pm.expect(res.comment).to.have.property(\"user\");",
+                  "    pm.expect(res.comment.user).to.have.property(\"name\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Inspected the asset on site. Replaced the drive belt and verified motor alignment.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{ticketId}}/comments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets", "{{ticketId}}", "comments"]
+            },
+            "description": "Appends a new comment to a ticket thread. Any authenticated user can comment."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06. Dashboard Summary",
+      "description": "Aggregated metrics calculated in real-time using PostgreSQL database aggregations.",
+      "item": [
+        {
+          "name": "Get Dashboard Summary Metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Returns summary with all required aggregations\", function () {",
+                  "    pm.expect(res).to.have.property(\"summary\");",
+                  "    const s = res.summary;",
+                  "    pm.expect(s).to.have.property(\"totalAssets\");",
+                  "    pm.expect(s).to.have.property(\"totalTickets\");",
+                  "    pm.expect(s).to.have.property(\"openTickets\");",
+                  "    pm.expect(s).to.have.property(\"overdueTickets\");",
+                  "    pm.expect(s).to.have.property(\"assetsUnderMaintenance\");",
+                  "    pm.expect(s).to.have.property(\"ticketsByStatus\");",
+                  "    pm.expect(s).to.have.property(\"ticketsByPriority\");",
+                  "    pm.expect(s).to.have.property(\"assetsByStatus\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard", "summary"]
+            },
+            "description": "Calculates real-time database aggregations for dashboard KPI cards and breakdown charts."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07. Health & System",
+      "description": "System health check and RBAC validation test routes.",
+      "item": [
+        {
+          "name": "System Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Status is ok\", function () {",
+                  "    pm.expect(res).to.have.property(\"status\", \"ok\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            },
+            "description": "Public health check endpoint for uptime monitoring and deployment smoke testing."
+          },
+          "response": []
+        },
+        {
+          "name": "Test Admin Access Endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/test-admin-access",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "test-admin-access"]
+            },
+            "description": "RBAC verification test route requiring Admin role."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
