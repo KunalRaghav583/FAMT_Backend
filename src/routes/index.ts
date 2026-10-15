@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import authRoutes from "./auth.routes";
 import siteRoutes from "./site.routes";
 import assetRoutes from "./asset.routes";
+import ticketRoutes from "./ticket.routes";
 import { requireAuth, requireRole } from "../middleware/auth.middleware";
 
 const apiRouter = Router();
@@ -10,6 +11,7 @@ const apiRouter = Router();
 apiRouter.use("/auth", authRoutes);
 apiRouter.use("/sites", siteRoutes);
 apiRouter.use("/assets", assetRoutes);
+apiRouter.use("/tickets", ticketRoutes);
 
 // Health check endpoint for deployment monitoring
 apiRouter.get("/health", (_req, res) => {
