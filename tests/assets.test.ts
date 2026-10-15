@@ -87,6 +87,34 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       expect(resPage2.body.assets[0].id).not.toBe(res.body.assets[0].id);
     });
 
+    it("should maintain deterministic ordering across all pages with unique id tie-breaker", async () => {
+      const allAssetsRes = await request(app)
+        .get("/api/assets?page=1&limit=20")
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      const page1Res = await request(app)
+        .get("/api/assets?page=1&limit=5")
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      const page2Res = await request(app)
+        .get("/api/assets?page=2&limit=5")
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      const expectedFirst5 = allAssetsRes.body.assets
+        .slice(0, 5)
+        .map((a: { id: string }) => a.id);
+      const expectedSecond5 = allAssetsRes.body.assets
+        .slice(5, 10)
+        .map((a: { id: string }) => a.id);
+
+      expect(page1Res.body.assets.map((a: { id: string }) => a.id)).toEqual(
+        expectedFirst5,
+      );
+      expect(page2Res.body.assets.map((a: { id: string }) => a.id)).toEqual(
+        expectedSecond5,
+      );
+    });
+
     it("should filter assets by search term matching name or serial number", async () => {
       const res = await request(app)
         .get("/api/assets?search=PUMP-PB-001")
@@ -107,6 +135,16 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       for (const asset of res.body.assets) {
         expect(asset.siteId).toBe(testSiteId);
       }
+    });
+
+    it("should reject malformed siteId query parameter with 400", async () => {
+      const res = await request(app)
+        .get("/api/assets?siteId=not-a-valid-uuid")
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
     });
 
     it("should filter assets by status", async () => {
@@ -150,7 +188,17 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       expect(res.body.asset.site).toHaveProperty("name");
     });
 
-    it("should return 404 for nonexistent asset ID", async () => {
+    it("should return 400 for malformed non-UUID asset ID", async () => {
+      const res = await request(app)
+        .get("/api/assets/invalid-uuid-string")
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
+    });
+
+    it("should return 404 for valid but nonexistent asset UUID", async () => {
       const res = await request(app)
         .get("/api/assets/00000000-0000-0000-0000-000000000000")
         .set("Authorization", `Bearer ${viewerToken}`);
@@ -179,6 +227,38 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       expect(res.body.asset.status).toBe(AssetStatus.Active);
 
       createdAssetId = res.body.asset.id;
+    });
+
+    it("should reject creation with unknown extra fields with 400", async () => {
+      const res = await request(app)
+        .post("/api/assets")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Strict Asset",
+          type: "Pump",
+          serialNo: "PUMP-STRICT-001",
+          siteId: testSiteId,
+          extraInvalidField: "should_fail",
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+    });
+
+    it("should reject creation with malformed non-UUID siteId with 400", async () => {
+      const res = await request(app)
+        .post("/api/assets")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Malformed Site Asset",
+          type: "Pump",
+          serialNo: "PUMP-BAD-SITE-ID",
+          siteId: "not-a-uuid",
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
     });
 
     it("should forbid Technician from creating asset with 403", async () => {
@@ -225,7 +305,7 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       expect(res.body.error).toMatch(/already exists/i);
     });
 
-    it("should reject creation with invalid siteId with 400", async () => {
+    it("should reject creation with valid but nonexistent site UUID with 400", async () => {
       const res = await request(app)
         .post("/api/assets")
         .set("Authorization", `Bearer ${adminToken}`)
@@ -257,10 +337,65 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       expect(res.body.asset.status).toBe(AssetStatus.Under_maintenance);
     });
 
+    it("should reject update with empty body with 400", async () => {
+      const res = await request(app)
+        .put(`/api/assets/${createdAssetId}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/At least one field must be provided/i);
+    });
+
+    it("should reject update with unknown extra fields with 400", async () => {
+      const res = await request(app)
+        .put(`/api/assets/${createdAssetId}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Valid Update",
+          extraUnknownProp: "blocked",
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+    });
+
+    it("should reject update with malformed non-UUID asset ID with 400", async () => {
+      const res = await request(app)
+        .put("/api/assets/bad-uuid-value")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ name: "New Name" });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
+    });
+
+    it("should reject update with malformed non-UUID siteId with 400", async () => {
+      const res = await request(app)
+        .put(`/api/assets/${createdAssetId}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ siteId: "not-a-valid-uuid" });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
+    });
+
     it("should forbid Technician from updating asset with 403", async () => {
       const res = await request(app)
         .put(`/api/assets/${createdAssetId}`)
         .set("Authorization", `Bearer ${techToken}`)
+        .send({ name: "Hacked Name" });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should forbid Viewer from updating asset with 403", async () => {
+      const res = await request(app)
+        .put(`/api/assets/${createdAssetId}`)
+        .set("Authorization", `Bearer ${viewerToken}`)
         .send({ name: "Hacked Name" });
 
       expect(res.status).toBe(403);
@@ -276,7 +411,7 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       expect(res.body.error).toMatch(/already exists/i);
     });
 
-    it("should return 404 when updating nonexistent asset", async () => {
+    it("should return 404 when updating valid but nonexistent asset UUID", async () => {
       const res = await request(app)
         .put("/api/assets/00000000-0000-0000-0000-000000000000")
         .set("Authorization", `Bearer ${adminToken}`)
@@ -288,6 +423,16 @@ describe("Stage 4 - Assets API Integration Tests", () => {
   });
 
   describe("DELETE /api/assets/:id", () => {
+    it("should reject deletion with malformed non-UUID asset ID with 400", async () => {
+      const res = await request(app)
+        .delete("/api/assets/invalid-uuid-format")
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
+    });
+
     it("should reject deletion of an asset with maintenance tickets with 400", async () => {
       const res = await request(app)
         .delete(`/api/assets/${assetWithTicketsId}`)
@@ -302,6 +447,14 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       const res = await request(app)
         .delete(`/api/assets/${createdAssetId}`)
         .set("Authorization", `Bearer ${techToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should forbid Viewer from deleting an asset with 403", async () => {
+      const res = await request(app)
+        .delete(`/api/assets/${createdAssetId}`)
+        .set("Authorization", `Bearer ${viewerToken}`);
 
       expect(res.status).toBe(403);
     });
@@ -322,7 +475,7 @@ describe("Stage 4 - Assets API Integration Tests", () => {
       createdAssetId = "";
     });
 
-    it("should return 404 when deleting nonexistent asset", async () => {
+    it("should return 404 when deleting valid but nonexistent asset UUID", async () => {
       const res = await request(app)
         .delete("/api/assets/00000000-0000-0000-0000-000000000000")
         .set("Authorization", `Bearer ${adminToken}`);

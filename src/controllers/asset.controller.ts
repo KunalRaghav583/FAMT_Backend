@@ -52,7 +52,7 @@ export async function listAssets(
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
         include: {
           site: {
             select: {

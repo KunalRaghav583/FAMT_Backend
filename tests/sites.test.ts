@@ -94,7 +94,17 @@ describe("Stage 4 - Sites API Integration Tests", () => {
       expect(res.body.site).toHaveProperty("assets");
     });
 
-    it("should return 404 for nonexistent site ID", async () => {
+    it("should return 400 for malformed non-UUID site ID", async () => {
+      const res = await request(app)
+        .get("/api/sites/not-a-valid-uuid")
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
+    });
+
+    it("should return 404 for valid but nonexistent site UUID", async () => {
       const res = await request(app)
         .get("/api/sites/00000000-0000-0000-0000-000000000000")
         .set("Authorization", `Bearer ${viewerToken}`);
@@ -161,6 +171,20 @@ describe("Stage 4 - Sites API Integration Tests", () => {
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty("error");
     });
+
+    it("should reject creation with unknown extra fields with 400", async () => {
+      const res = await request(app)
+        .post("/api/sites")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Strict Validation Site",
+          location: "Austin, TX",
+          unexpectedField: "malicious_payload",
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+    });
   });
 
   describe("PUT /api/sites/:id", () => {
@@ -178,6 +202,41 @@ describe("Stage 4 - Sites API Integration Tests", () => {
       expect(res.body.site.location).toBe("Kenedy, TX");
     });
 
+    it("should reject update with empty body with 400", async () => {
+      const res = await request(app)
+        .put(`/api/sites/${createdSiteId}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/At least one field must be provided/i);
+    });
+
+    it("should reject update with unknown extra fields with 400", async () => {
+      const res = await request(app)
+        .put(`/api/sites/${createdSiteId}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Valid Name",
+          unknownAttribute: "blocked",
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+    });
+
+    it("should reject update with malformed non-UUID site ID with 400", async () => {
+      const res = await request(app)
+        .put("/api/sites/invalid-uuid-format")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ name: "Updated Name" });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
+    });
+
     it("should forbid Technician from updating a site with 403", async () => {
       const res = await request(app)
         .put(`/api/sites/${createdSiteId}`)
@@ -187,7 +246,16 @@ describe("Stage 4 - Sites API Integration Tests", () => {
       expect(res.status).toBe(403);
     });
 
-    it("should return 404 when updating nonexistent site", async () => {
+    it("should forbid Viewer from updating a site with 403", async () => {
+      const res = await request(app)
+        .put(`/api/sites/${createdSiteId}`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .send({ name: "Hacked by Viewer" });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should return 404 when updating valid but nonexistent site UUID", async () => {
       const res = await request(app)
         .put("/api/sites/00000000-0000-0000-0000-000000000000")
         .set("Authorization", `Bearer ${adminToken}`)
@@ -199,6 +267,16 @@ describe("Stage 4 - Sites API Integration Tests", () => {
   });
 
   describe("DELETE /api/sites/:id", () => {
+    it("should reject deletion with malformed non-UUID site ID with 400", async () => {
+      const res = await request(app)
+        .delete("/api/sites/not-a-real-uuid")
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error");
+      expect(res.body.error).toMatch(/must be a valid UUID/i);
+    });
+
     it("should reject deletion of a site that has associated assets with 400", async () => {
       const res = await request(app)
         .delete(`/api/sites/${seededSiteId}`)
@@ -213,6 +291,14 @@ describe("Stage 4 - Sites API Integration Tests", () => {
       const res = await request(app)
         .delete(`/api/sites/${createdSiteId}`)
         .set("Authorization", `Bearer ${techToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should forbid Viewer from deleting a site with 403", async () => {
+      const res = await request(app)
+        .delete(`/api/sites/${createdSiteId}`)
+        .set("Authorization", `Bearer ${viewerToken}`);
 
       expect(res.status).toBe(403);
     });
@@ -233,7 +319,7 @@ describe("Stage 4 - Sites API Integration Tests", () => {
       createdSiteId = "";
     });
 
-    it("should return 404 when deleting nonexistent site", async () => {
+    it("should return 404 when deleting valid but nonexistent site UUID", async () => {
       const res = await request(app)
         .delete("/api/sites/00000000-0000-0000-0000-000000000000")
         .set("Authorization", `Bearer ${adminToken}`);
