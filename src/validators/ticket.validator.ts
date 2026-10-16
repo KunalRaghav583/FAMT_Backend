@@ -59,7 +59,11 @@ export const createTicketSchema = z.object({
         .uuid("Invalid assignee ID format: must be a valid UUID")
         .nullable()
         .optional(),
-      status: ticketStatusSchema.optional(),
+      status: ticketStatusSchema
+        .refine((val) => val === TicketStatus.Open, {
+          message: "New tickets must always start with 'Open' status",
+        })
+        .optional(),
     })
     .strict(),
 });

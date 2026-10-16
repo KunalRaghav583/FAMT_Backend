@@ -373,7 +373,7 @@ The status transition state machine follows industrial field operations protocol
 
 ## Testing & Quality Verification
 
-The test suite runs 126 automated tests across 8 test suites with zero manual intervention required:
+The test suite runs 152 automated tests across 8 test suites with zero manual intervention required:
 
 ```bash
 npm test
@@ -381,13 +381,14 @@ npm test
 
 ### Test Coverage Highlights
 
-- **Referential Integrity (`tests/db.test.ts`)**: Confirms unique constraints and `RESTRICT` cascade rules for sites with assets and assets with tickets.
-- **Authentication (`tests/auth.test.ts`)**: Covers registration policies, password hashing, token verification, role enforcement, and token expiry.
-- **Sites API (`tests/sites.test.ts`)**: Tests Admin CRUD, non-admin 403 rejections, UUID validation, and deletion restrictions.
-- **Assets API (`tests/assets.test.ts`)**: Tests search filtering, site filtering, duplicate serial number 400 rejection, and deterministic pagination.
-- **Tickets API (`tests/tickets.test.ts`)**: Tests ticket lifecycle transitions, role restrictions, assignee role validation, and Admin reopen rules.
-- **Comments API (`tests/comments.test.ts`)**: Tests comment thread creation, author attribution, and validation.
-- **Dashboard API (`tests/dashboard.test.ts`)**: Tests all KPI aggregations (`openTickets`, `overdueTickets`, `assetsUnderMaintenance`), empty database handling, and breakdown groupings.
+- **Authentication & Security (`tests/auth.test.ts` - 24 tests)**: Covers atomic first-Admin registration with PostgreSQL transaction advisory locks, concurrent registration race condition prevention, role escalation protection, bcrypt hashing, JWT issuance, protected authenticated logout, and user existence verification.
+- **Tickets API & Lifecycle Workflow (`tests/tickets.test.ts` - 37 tests)**: Verifies exact sequential lifecycle progression (`Open → In progress → Resolved → Closed`), rejection of invalid transitions (`Open → Resolved`), enforcement that new tickets always start with `Open`, Admin-only reopening of closed tickets, technician assignment constraints, and strict `Admin or assignee` read authorization.
+- **Assets API (`tests/assets.test.ts` - 29 tests)**: Tests search filtering, site filtering, status filtering, deterministic pagination, Admin-only write access, and deletion restriction when maintenance tickets exist.
+- **Sites API (`tests/sites.test.ts` - 20 tests)**: Tests Admin CRUD, non-Admin 403 rejections, UUID parameter validation, and deletion restrictions on sites with assets.
+- **Comments API (`tests/comments.test.ts` - 10 tests)**: Tests comment thread creation, author attribution, and validation.
+- **Environment, Tooling & Security (`tests/setup.test.ts` - 11 tests)**: Tests server configuration constants, production `JWT_SECRET` mandatory presence (min 32 chars and rejection of insecure/default values), HTTP security headers with Helmet, and rate limiting protections with `express-rate-limit`.
+- **Referential Integrity (`tests/db.test.ts` - 6 tests)**: Confirms unique constraints on email and serial number, and `RESTRICT` deletion rules for sites with assets and assets with tickets.
+- **Dashboard API (`tests/dashboard.test.ts` - 5 tests)**: Tests KPI aggregations (`openTickets`, `overdueTickets`, `assetsUnderMaintenance`), status/priority breakdown charts, and dynamic overdue metric updates.
 
 To run all quality assurance checks:
 

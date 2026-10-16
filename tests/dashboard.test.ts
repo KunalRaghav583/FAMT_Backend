@@ -131,7 +131,13 @@ describe("Stage 6 - Dashboard API Integration Tests", () => {
         .set("Authorization", `Bearer ${adminToken}`);
       expect(afterCreateRes.body.summary.overdueTickets).toBe(baselineOverdue + 1);
 
-      // 4. Resolve the ticket
+      // 4. Progress and Resolve the ticket following strict workflow (Open -> In progress -> Resolved)
+      const inProgressRes = await request(app)
+        .patch(`/api/tickets/${controlledTicketId}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "In progress" });
+      expect(inProgressRes.status).toBe(200);
+
       const resolveRes = await request(app)
         .patch(`/api/tickets/${controlledTicketId}/status`)
         .set("Authorization", `Bearer ${adminToken}`)

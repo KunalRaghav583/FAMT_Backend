@@ -43,15 +43,6 @@ function validateStatusTransition(
     );
   }
 
-  // Admin supervisory override: Admin can move Open -> Resolved directly
-  if (
-    isAdmin &&
-    currentStatus === TicketStatus.Open &&
-    targetStatus === TicketStatus.Resolved
-  ) {
-    return;
-  }
-
   // General sequential flow check: Open -> In progress -> Resolved -> Closed
   const expectedNext = ALLOWED_FORWARD_STATUS[currentStatus];
   if (targetStatus !== expectedNext) {
@@ -253,6 +244,11 @@ export async function createTicket(
     const { title, description, priority, dueDate, assetId, assigneeId, status } =
       req.body;
 
+    // Enforce initial status policy: new tickets must always start with Open
+    if (status && status !== TicketStatus.Open) {
+      throw new AppError("New tickets must always start with 'Open' status", 400);
+    }
+
     // 1. Verify referenced asset exists
     const asset = await prisma.asset.findUnique({
       where: { id: assetId },
@@ -289,7 +285,7 @@ export async function createTicket(
         dueDate,
         assetId,
         assigneeId: assigneeId ?? null,
-        status: status ?? TicketStatus.Open,
+        status: TicketStatus.Open,
         createdBy: req.user.id,
       },
       include: {
