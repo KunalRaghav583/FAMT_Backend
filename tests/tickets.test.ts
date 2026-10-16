@@ -337,6 +337,50 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty("error");
     });
+
+    it("should reject ticket creation with non-Open status (e.g. 'In progress', 'Resolved', 'Closed') with 400", async () => {
+      const dueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const invalidStatuses = ["In progress", "Resolved", "Closed"];
+      for (const status of invalidStatuses) {
+        const res = await request(app)
+          .post("/api/tickets")
+          .set("Authorization", `Bearer ${adminToken}`)
+          .send({
+            title: `Bypass attempt with ${status}`,
+            description: "Attempting to create ticket directly in non-Open status.",
+            priority: "Medium",
+            dueDate,
+            assetId: testAssetId,
+            status,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(
+          /New tickets must always start with 'Open' status/i,
+        );
+      }
+    });
+
+    it("should allow creating a ticket with explicit 'Open' status", async () => {
+      const dueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const res = await request(app)
+        .post("/api/tickets")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          title: "Ticket with explicit Open status",
+          description: "Explicitly sending Open status.",
+          priority: "Low",
+          dueDate,
+          assetId: testAssetId,
+          status: "Open",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.ticket.status).toBe(TicketStatus.Open);
+
+      await prisma.ticket.delete({ where: { id: res.body.ticket.id } });
+    });
   });
 
   describe("PUT /api/tickets/:id", () => {
@@ -486,6 +530,43 @@ describe("Stage 5 - Tickets API Integration Tests", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Invalid status transition/i);
+    });
+
+    it("should reject illegal skipping status transition by Admin (Open -> Resolved) with 400", async () => {
+      const res = await request(app)
+        .patch(`/api/tickets/${seededTicketId}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "Resolved" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(
+        /Invalid status transition from 'Open' to 'Resolved'/i,
+      );
+    });
+
+    it("should reject illegal reopening to non-Open status (Closed -> In progress) with 400", async () => {
+      // First ensure ticket is closed
+      const tempTicket = await prisma.ticket.create({
+        data: {
+          title: "Closed ticket for invalid reopen test",
+          description: "Testing invalid reopen target.",
+          priority: TicketPriority.Low,
+          status: TicketStatus.Closed,
+          dueDate: new Date(),
+          assetId: testAssetId,
+          createdBy: adminUserId,
+        },
+      });
+
+      const res = await request(app)
+        .patch(`/api/tickets/${tempTicket.id}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "In progress" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/closed ticket can only be reopened to 'Open'/i);
+
+      await prisma.ticket.delete({ where: { id: tempTicket.id } });
     });
   });
 });

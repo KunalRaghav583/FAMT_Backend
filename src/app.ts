@@ -1,18 +1,21 @@
 import express, { Application, Request, Response } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { env } from "./config/env";
 import apiRouter from "./routes";
+import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { errorHandler } from "./middleware/error.middleware";
 
 const app: Application = express();
 
-// Global Middlewares
+// Security & Parsing Middlewares
+app.use(helmet());
 app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50kb" }));
+app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 
-// Mount API routes under /api
-app.use("/api", apiRouter);
+// Mount rate-limited API routes under /api
+app.use("/api", apiLimiter, apiRouter);
 
 // Root greeting & info
 app.get("/", (_req: Request, res: Response) => {

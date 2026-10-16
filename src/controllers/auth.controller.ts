@@ -14,46 +14,54 @@ export async function register(
   try {
     const { name, email, password, role } = req.body;
 
-    // Check for existing user
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-    if (existingUser) {
-      throw new AppError("A user with this email already exists", 400);
-    }
-
-    // Role Assignment & Security Enforcement
-    const userCount = await prisma.user.count();
-    let assignedRole: Role = Role.Viewer;
-
-    if (userCount === 0) {
-      // First system bootstrap user becomes Admin
-      assignedRole = Role.Admin;
-    } else if (req.user && req.user.role === Role.Admin) {
-      // If the caller IS a logged-in Admin (valid token): Admin can set the role
-      assignedRole = role && Object.values(Role).includes(role) ? role : Role.Viewer;
-    } else {
-      // If users exist and caller is NOT a logged-in Admin:
-      // register is allowed, but the role is ALWAYS Viewer. Ignore any role sent in the body.
-      assignedRole = Role.Viewer;
-    }
-
+    // Hash password before entering transaction to avoid holding database lock during bcrypt
     const passwordHash = await hashPassword(password);
 
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        passwordHash,
-        role: assignedRole,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        createdAt: true,
-      },
+    // Atomic transaction with PostgreSQL advisory lock prevents race conditions
+    // during initial Admin bootstrap when multiple concurrent requests occur.
+    const user = await prisma.$transaction(async (tx) => {
+      // 742189 is an application-scoped integer key for user registration serialization
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(742189);`;
+
+      // Check for existing user
+      const existingUser = await tx.user.findUnique({
+        where: { email },
+      });
+      if (existingUser) {
+        throw new AppError("A user with this email already exists", 400);
+      }
+
+      // Role Assignment & Security Enforcement
+      const userCount = await tx.user.count();
+      let assignedRole: Role = Role.Viewer;
+
+      if (userCount === 0) {
+        // First system bootstrap user becomes Admin
+        assignedRole = Role.Admin;
+      } else if (req.user && req.user.role === Role.Admin) {
+        // If the caller IS a logged-in Admin (valid token): Admin can set the role
+        assignedRole = role && Object.values(Role).includes(role) ? role : Role.Viewer;
+      } else {
+        // If users exist and caller is NOT a logged-in Admin:
+        // register is allowed, but the role is ALWAYS Viewer. Ignore any role sent in the body.
+        assignedRole = Role.Viewer;
+      }
+
+      return tx.user.create({
+        data: {
+          name,
+          email,
+          passwordHash,
+          role: assignedRole,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          createdAt: true,
+        },
+      });
     });
 
     res.status(201).json({

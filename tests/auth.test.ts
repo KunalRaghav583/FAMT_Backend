@@ -2,7 +2,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import app from "../src/app";
 import { prisma } from "../src/db/prisma";
-import { Role } from "@prisma/client";
+import { Role, Prisma } from "@prisma/client";
 import { env } from "../src/config/env";
 
 describe("Stage 3 - Authentication & Authorization Integration Tests", () => {
@@ -109,8 +109,20 @@ describe("Stage 3 - Authentication & Authorization Integration Tests", () => {
     });
 
     it("should bootstrap the very first user as Admin if zero users exist in the database", async () => {
-      // Simulate 0 users in DB to verify first-user bootstrap
-      const countSpy = jest.spyOn(prisma.user, "count").mockResolvedValueOnce(0);
+      // Simulate 0 users in DB within the atomic transaction to verify first-user bootstrap
+      const txSpy = jest
+        .spyOn(prisma, "$transaction")
+        .mockImplementationOnce(async (cb) => {
+          const mockTx = {
+            $executeRaw: jest.fn().mockResolvedValue(1),
+            user: {
+              findUnique: jest.fn().mockResolvedValue(null),
+              count: jest.fn().mockResolvedValue(0),
+              create: prisma.user.create.bind(prisma.user),
+            },
+          } as unknown as Prisma.TransactionClient;
+          return (cb as (tx: Prisma.TransactionClient) => Promise<unknown>)(mockTx);
+        });
 
       const res = await request(app).post("/api/auth/register").send({
         name: "First Bootstrap Admin",
@@ -121,7 +133,88 @@ describe("Stage 3 - Authentication & Authorization Integration Tests", () => {
       expect(res.status).toBe(201);
       expect(res.body.user.role).toBe(Role.Admin);
 
-      countSpy.mockRestore();
+      txSpy.mockRestore();
+    });
+
+    it("should safely serialize concurrent registration attempts and prevent multiple Admin escalations", async () => {
+      const email1 = `concurrent1-${Date.now()}@famt.dev`;
+      const email2 = `concurrent2-${Date.now()}@famt.dev`;
+
+      const [res1, res2] = await Promise.all([
+        request(app).post("/api/auth/register").send({
+          name: "Concurrent Applicant 1",
+          email: email1,
+          password: "SecurePassword123!",
+          role: "Admin", // Attempting privilege escalation
+        }),
+        request(app).post("/api/auth/register").send({
+          name: "Concurrent Applicant 2",
+          email: email2,
+          password: "SecurePassword123!",
+          role: "Admin", // Attempting privilege escalation
+        }),
+      ]);
+
+      expect(res1.status).toBe(201);
+      expect(res2.status).toBe(201);
+
+      // In an already seeded database, both public registrations MUST be locked to Viewer
+      expect(res1.body.user.role).toBe(Role.Viewer);
+      expect(res2.body.user.role).toBe(Role.Viewer);
+
+      // Clean up test records
+      await prisma.user.deleteMany({
+        where: { email: { in: [email1, email2] } },
+      });
+    });
+
+    it("should atomically ensure only one Admin is created when concurrent registrations hit an empty database", async () => {
+      let callCount = 0;
+      const txSpy = jest.spyOn(prisma, "$transaction").mockImplementation(async (cb) => {
+        callCount++;
+        // First transaction sees 0 users; second transaction sees 1 user (atomic lock serialization)
+        const count = callCount === 1 ? 0 : 1;
+        const mockTx = {
+          $executeRaw: jest.fn().mockResolvedValue(1),
+          user: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            count: jest.fn().mockResolvedValue(count),
+            create: async (args: {
+              data: { role: Role; name: string; email: string };
+            }) => ({
+              id: `simulated-id-${callCount}`,
+              name: args.data.name,
+              email: args.data.email,
+              role: args.data.role,
+              createdAt: new Date(),
+            }),
+          },
+        } as unknown as Prisma.TransactionClient;
+        return (cb as (tx: Prisma.TransactionClient) => Promise<unknown>)(mockTx);
+      });
+
+      const [res1, res2] = await Promise.all([
+        request(app).post("/api/auth/register").send({
+          name: "First Racer",
+          email: "racer1@famt.dev",
+          password: "SecurePassword123!",
+        }),
+        request(app).post("/api/auth/register").send({
+          name: "Second Racer",
+          email: "racer2@famt.dev",
+          password: "SecurePassword123!",
+        }),
+      ]);
+
+      expect(res1.status).toBe(201);
+      expect(res2.status).toBe(201);
+
+      // Exactly one user must be Admin, and the other must be Viewer
+      const roles = [res1.body.user.role, res2.body.user.role];
+      expect(roles).toContain(Role.Admin);
+      expect(roles).toContain(Role.Viewer);
+
+      txSpy.mockRestore();
     });
 
     it("should allow an authenticated Admin to register a user with Admin role", async () => {
@@ -281,11 +374,21 @@ describe("Stage 3 - Authentication & Authorization Integration Tests", () => {
   });
 
   describe("POST /api/auth/logout", () => {
-    it("should respond with 200 acknowledging logout", async () => {
+    it("should reject unauthenticated logout request with 401", async () => {
       const res = await request(app).post("/api/auth/logout");
+
+      expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: "Authorization token required" });
+    });
+
+    it("should allow authenticated user to logout with 200 acknowledging logout and directing client to discard token", async () => {
+      const res = await request(app)
+        .post("/api/auth/logout")
+        .set("Authorization", `Bearer ${viewerToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("message");
+      expect(res.body.message).toMatch(/logged out successfully.*discard.*token/i);
     });
   });
 
