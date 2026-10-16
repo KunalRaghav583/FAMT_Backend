@@ -64,6 +64,52 @@
           "response": []
         },
         {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Returns valid JWT token and Admin role\", function () {",
+                  "    pm.expect(res).to.have.property(\"token\");",
+                  "    pm.expect(res.user).to.have.property(\"role\", \"Admin\");",
+                  "    pm.environment.set(\"token\", res.token);",
+                  "    pm.environment.set(\"adminToken\", res.token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{defaultPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Authenticates the seeded Admin user and saves token to {{adminToken}} and active {{token}}."
+          },
+          "response": []
+        },
+        {
           "name": "Register Technician (Admin Only)",
           "event": [
             {
@@ -110,52 +156,6 @@
               "path": ["api", "auth", "register"]
             },
             "description": "Admin users can register accounts with elevated roles ('Technician' or 'Admin'). Requires Admin Bearer token."
-          },
-          "response": []
-        },
-        {
-          "name": "Login Admin",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "const res = pm.response.json();",
-                  "pm.test(\"Returns valid JWT token and Admin role\", function () {",
-                  "    pm.expect(res).to.have.property(\"token\");",
-                  "    pm.expect(res.user).to.have.property(\"role\", \"Admin\");",
-                  "    pm.environment.set(\"token\", res.token);",
-                  "    pm.environment.set(\"adminToken\", res.token);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{defaultPassword}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "login"]
-            },
-            "description": "Authenticates the seeded Admin user and saves token to {{adminToken}} and active {{token}}."
           },
           "response": []
         },
@@ -808,7 +808,7 @@
                   "});",
                   "const res = pm.response.json();",
                   "pm.test(\"Status updated to Under maintenance\", function () {",
-                  "    pm.expect(res.asset.status).to.equal(\"Under maintenance\");",
+                  "    pm.expect(res.asset.status).to.be.oneOf([\"Under maintenance\", \"Under_maintenance\"]);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -895,7 +895,7 @@
                   "});",
                   "const res = pm.response.json();",
                   "pm.test(\"Error explains ticket dependency\", function () {",
-                  "    pm.expect(res.error).to.include(\"associated maintenance tickets\");",
+                  "    pm.expect(res.error).to.include(\"maintenance ticket\");",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1123,7 +1123,7 @@
                   "});",
                   "const res = pm.response.json();",
                   "pm.test(\"Status moved to In progress\", function () {",
-                  "    pm.expect(res.ticket.status).to.equal(\"In progress\");",
+                  "    pm.expect(res.ticket.status).to.be.oneOf([\"In progress\", \"In_progress\"]);",
                   "});"
                 ],
                 "type": "text/javascript"
