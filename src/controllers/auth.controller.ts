@@ -156,3 +156,27 @@ export async function logout(_req: AuthenticatedRequest, res: Response): Promise
       "Logged out successfully. Please discard the authentication token on the client.",
   });
 }
+
+export async function getTechnicians(
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const technicians = await prisma.user.findMany({
+      where: { role: Role.Technician },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      },
+      orderBy: { name: "asc" },
+    });
+
+    res.status(200).json({ technicians });
+  } catch (error) {
+    next(error);
+  }
+}
+
